@@ -8,6 +8,105 @@ import subprocess
 import sys
 import shutil
 
+try:
+    import csv
+    from reportlab.lib.pagesizes import LETTER, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, Table, TableStyle
+    from reportlab.platypus import SimpleDocTemplate
+    import reportlab.lib.colors
+
+    reportlab_available = True
+except ImportError:
+    reportlab_available = False
+
+
+def hint_word_wrap(dat):
+    """
+    If the BOM sheets are generated without word-wrapping cells, they would be
+    wider than a page.
+
+    By default, reportlab only word wraps around spaces. However, some fields
+    use underscores or dashes as separators. (e.g. WIRE_WITH_HOLE)
+
+    This hack inserts spaces throughout the fields to force them to word wrap.
+    """
+    segments = dat.split(" ")
+    i = 0
+    while i < len(segments):
+        seg = segments[i]
+        if len(seg) < 15:
+            i += 1
+            continue
+
+        try:
+            before, after = seg.split("-", 1)
+            if len(before) < 15:
+                segments[i] = before + "-"
+                segments.insert(i + 1, after)
+                i += 1
+                continue
+        except ValueError:
+            pass
+
+        try:
+            before, after = seg.split("_", 1)
+            if len(before) < 15:
+                segments[i] = before + "_"
+                segments.insert(i + 1, after)
+                i += 1
+                continue
+        except ValueError:
+            pass
+
+        i += 1
+
+    return " ".join(segments)
+
+
+def get_table_data(csv_name):
+    """
+    Read a CSV file, and convert it to an array of reportlab Paragraphs.
+    The Paragraphs make sure the cells can word wrap.
+    """
+
+    with open(csv_name, "r") as csvfile:
+        reader = csv.reader(csvfile)
+        data = list(reader)
+
+    # Small fonts are required for the table width to not exceed the page width
+    styles = getSampleStyleSheet()
+    text_style = styles["Normal"]
+    text_style.fontSize = 6
+
+    header_row = [[Paragraph("<b><u>" + x + "</u></b>", text_style)
+                   for x in data[0]]]
+    other_rows = [[Paragraph(hint_word_wrap(x), text_style) for x in y]
+                  for y in data[1:]]
+
+    return header_row + other_rows
+
+
+def gen_bom_pdf(csv_name, pdf_name):
+    """
+    Render a CSV file to PDF
+    """
+    doc = SimpleDocTemplate(pdf_name,
+                            pagesize=landscape(LETTER),
+                            # Use minimum printable margins
+                            rightMargin=4,
+                            leftMargin=4,
+                            topMargin=4,
+                            bottomMargin=4)
+    data = get_table_data(csv_name)
+    table_style = TableStyle([
+        # Shade alternating rows with a light grey background
+        ['ROWBACKGROUNDS', (0, 0), (-1, -1), [reportlab.lib.colors.lightgrey,
+                                              reportlab.lib.colors.white]]
+    ])
+    # Render and write the PDF file to disk
+    doc.build([Table(data, style=table_style)])
+
 
 def run_script(file_name, script_name):
     ret = eagle_util_funcs.run_eagle([
@@ -41,7 +140,9 @@ def compile_pdf(inputs, output):
 
 
 def main():
+    # TODO(kzentner): accept four arguments
     if len(sys.argv) < 3:
+        # TODO(kzentner): change signature ta have CSV as last arg
         print("Usage: %s in.sch|in.brd out.pdf" % (sys.argv[0]))
         sys.exit(1)
 
@@ -52,6 +153,15 @@ def main():
 
     sch_name = os.path.join(os.getcwd(), base_name + ".sch")
     brd_name = os.path.join(os.getcwd(), base_name + ".brd")
+
+    if reportlab_available:
+        # TODO(kzentner): accept the csv path as an argument instead
+        csv_name = os.path.join(
+            os.path.abspath("../../build/artifacts/boards"),
+            base_name.split("/")[-1] + ".csv")
+        have_csv = os.path.isfile(csv_name)
+    else:
+        have_csv = False
 
     have_sch = os.path.isfile(sch_name)
     have_brd = os.path.isfile(brd_name)
@@ -93,6 +203,11 @@ def main():
         os.remove(dst_brd_name)
         inputs.append(os.path.join(tmp_dir, "top.pdf"))
         inputs.append(os.path.join(tmp_dir, "bottom.pdf"))
+
+    # Generate bill of materials
+    if have_csv:
+        gen_bom_pdf(csv_name, os.path.join(tmp_dir, "bom.pdf"))
+        inputs.append(os.path.join(tmp_dir, "bom.pdf"))
 
     # Compile final pdf
     compile_pdf(inputs, out_name)

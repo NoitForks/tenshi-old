@@ -43,6 +43,11 @@ def build(bld):
             target=outfile)
         add_dependency(bld, outfile, '${root}/tools/parts-db.yaml')
         if build_docu_packets:
+            # TODO(kzentner): change this rule to be
+            # artifacts/boards/{NAME}.csv, {NAME}.sch, {NAME}.brd
+            # (if it exists)
+            # and run
+            # docu-packet-gen.py in.sch|in.brd path/to/.../{NAME}.csv
             pdffile = ('../../artifacts/boards/' +
                        os.path.splitext(base_name)[0] + '.pdf')
             bld(rule='${root}/tools/docu-packet-gen.py ${SRC} ${TGT} ',
