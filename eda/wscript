@@ -53,3 +53,4 @@ def build(bld):
             bld(rule='${root}/tools/docu-packet-gen.py ${SRC} ${TGT} ',
                 source=base_name,
                 target=pdffile)
+            add_dependency(bld, pdffile, '${root}/tools/docu-packet-gen.py')

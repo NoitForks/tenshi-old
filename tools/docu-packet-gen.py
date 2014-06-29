@@ -18,6 +18,8 @@ try:
 
     reportlab_available = True
 except ImportError:
+    print('Warning: reportlab is not available, documentation will not '
+          'contain BOM')
     reportlab_available = False
 
 
